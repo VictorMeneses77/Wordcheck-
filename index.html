@@ -5,8 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="WordCheck">
-    <title>⚡ WordCheck iOS + Zoom</title>
+    <title>⚡ WordCheck Pro - Zoom OCR</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         body {
@@ -21,8 +20,8 @@
             touch-action: none;
         }
         
-        /* Contenedor de cámara con zoom */
-        #camera-wrapper {
+        /* Vista previa de la cámara (lo que ve el usuario) */
+        #camera-preview {
             position: relative;
             flex: 1;
             overflow: hidden;
@@ -32,28 +31,24 @@
             width: 100%;
             height: 100%;
             object-fit: cover;
-            /* El zoom se aplica aquí vía JS */
-            transform-origin: center center;
-            transition: transform 0.1s ease-out;
-            will-change: transform;
         }
         
-        /* Zona de escaneo - siempre visible */
+        /* Zona de escaneo visual */
         #scan-zone {
             position: absolute;
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            width: 88%;
-            height: 120px;
+            width: 85%;
+            height: 140px;
             border: 3px solid #30D158;
             border-radius: 18px;
-            box-shadow: 0 0 0 4px rgba(0,0,0,0.5), 0 0 40px rgba(48,209,88,0.3), inset 0 0 30px rgba(48,209,88,0.05);
+            box-shadow: 0 0 0 500px rgba(0,0,0,0.4), 0 0 40px rgba(48,209,88,0.3), inset 0 0 30px rgba(48,209,88,0.05);
             pointer-events: none;
             z-index: 10;
         }
         #scan-zone::before {
-            content: 'ENFOCA LA PALABRA';
+            content: 'ENFOCA LA PALABRA AQUÍ';
             position: absolute;
             top: -32px;
             left: 50%;
@@ -91,6 +86,47 @@
         .corner-bl { bottom: -3px; left: -3px; border-width: 0 0 4px 4px; border-radius: 0 0 0 8px; }
         .corner-br { bottom: -3px; right: -3px; border-width: 0 4px 4px 0; border-radius: 0 0 8px 0; }
         
+        /* Canvas oculto para OCR (procesamiento) */
+        #ocr-canvas {
+            display: none;
+        }
+        
+        /* Vista previa del zoom (miniatura de lo que se está procesando) */
+        #zoom-preview {
+            position: absolute;
+            top: 80px;
+            right: 16px;
+            width: 120px;
+            height: 80px;
+            border: 2px solid #30D158;
+            border-radius: 12px;
+            overflow: hidden;
+            background: #000;
+            z-index: 20;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        #zoom-preview.active {
+            opacity: 1;
+        }
+        #zoom-preview canvas {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+        #zoom-label {
+            position: absolute;
+            bottom: 4px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 10px;
+            font-weight: 700;
+            color: #30D158;
+            background: rgba(0,0,0,0.7);
+            padding: 2px 8px;
+            border-radius: 10px;
+        }
+        
         /* Controles de zoom */
         #zoom-controls {
             position: absolute;
@@ -103,10 +139,10 @@
             z-index: 20;
         }
         .zoom-btn {
-            width: 48px;
-            height: 48px;
+            width: 52px;
+            height: 52px;
             border-radius: 50%;
-            background: rgba(0,0,0,0.6);
+            background: rgba(0,0,0,0.7);
             backdrop-filter: blur(20px);
             -webkit-backdrop-filter: blur(20px);
             border: 1px solid rgba(255,255,255,0.2);
@@ -121,37 +157,18 @@
             -webkit-touch-callout: none;
             user-select: none;
         }
-        .zoom-btn:active { transform: scale(0.9); background: rgba(48,209,88,0.3); }
-        #zoom-level {
+        .zoom-btn:active { transform: scale(0.9); background: rgba(48,209,88,0.3); border-color: #30D158; }
+        #zoom-level-display {
             text-align: center;
-            font-size: 13px;
-            font-weight: 700;
-            color: #fff;
-            background: rgba(0,0,0,0.6);
+            font-size: 14px;
+            font-weight: 800;
+            color: #30D158;
+            background: rgba(0,0,0,0.7);
             backdrop-filter: blur(20px);
-            padding: 6px 0;
+            padding: 8px 4px;
             border-radius: 12px;
             border: 1px solid rgba(255,255,255,0.2);
         }
-        
-        /* Indicador de zoom pinch */
-        #zoom-hint {
-            position: absolute;
-            top: 20%;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(0,0,0,0.7);
-            backdrop-filter: blur(10px);
-            padding: 8px 16px;
-            border-radius: 20px;
-            font-size: 13px;
-            color: #aaa;
-            opacity: 0;
-            transition: opacity 0.5s;
-            pointer-events: none;
-            z-index: 15;
-        }
-        #zoom-hint.show { opacity: 1; }
         
         /* UI superior */
         #ui-layer {
@@ -323,7 +340,7 @@
             color: #8E8E93;
             font-size: 14px;
             text-align: center;
-            max-width: 260px;
+            max-width: 280px;
             line-height: 1.5;
         }
         .progress-ios {
@@ -380,6 +397,28 @@
             opacity: 1;
             transform: translateX(-50%) translateY(0);
         }
+        
+        /* Indicador de distancia */
+        #distance-hint {
+            position: absolute;
+            top: 35%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.8);
+            backdrop-filter: blur(20px);
+            padding: 12px 24px;
+            border-radius: 16px;
+            font-size: 14px;
+            color: #FF9F0A;
+            font-weight: 600;
+            opacity: 0;
+            transition: opacity 0.5s;
+            pointer-events: none;
+            z-index: 15;
+            text-align: center;
+            max-width: 80%;
+        }
+        #distance-hint.show { opacity: 1; }
     </style>
 </head>
 <body>
@@ -387,7 +426,7 @@
     <!-- Pantalla de carga -->
     <div id="loading-screen">
         <div class="spinner"></div>
-        <div class="loading-title">WordCheck</div>
+        <div class="loading-title">WordCheck Pro</div>
         <div class="loading-sub">Descargando base de datos de palabras...</div>
         <div class="progress-ios"><div class="progress-ios-fill" id="load-progress"></div></div>
         <div class="word-count" id="word-count">0 palabras</div>
@@ -396,11 +435,11 @@
     <!-- Flash -->
     <div id="flash-overlay"></div>
 
-    <!-- Cámara con zoom -->
-    <div id="camera-wrapper" style="display:none;">
+    <!-- Cámara -->
+    <div id="camera-preview" style="display:none;">
         <video id="video" autoplay playsinline muted></video>
         
-        <!-- Zona de escaneo -->
+        <!-- Zona de escaneo visual -->
         <div id="scan-zone">
             <div class="corner corner-tl"></div>
             <div class="corner corner-tr"></div>
@@ -409,13 +448,22 @@
             <div class="scan-laser"></div>
         </div>
         
-        <!-- Hint de zoom -->
-        <div id="zoom-hint">👆 Pellizca para zoom</div>
+        <!-- Vista previa del zoom (lo que OCR ve) -->
+        <div id="zoom-preview">
+            <canvas id="zoom-preview-canvas"></canvas>
+            <div id="zoom-label">OCR</div>
+        </div>
+        
+        <!-- Hint de distancia -->
+        <div id="distance-hint">
+            📏 Acércate más o usa el zoom (+)<br>
+            <span style="font-size:12px; color:#aaa;">La palabra es muy pequeña para leerla</span>
+        </div>
         
         <!-- Controles de zoom -->
         <div id="zoom-controls">
             <button class="zoom-btn" onclick="changeZoom(0.5)" ontouchstart="changeZoom(0.5)">+</button>
-            <div id="zoom-level">1.0x</div>
+            <div id="zoom-level-display">1.0x</div>
             <button class="zoom-btn" onclick="changeZoom(-0.5)" ontouchstart="changeZoom(-0.5)">−</button>
         </div>
         
@@ -432,6 +480,9 @@
         
         <button id="capture-btn" onclick="manualCapture()"></button>
     </div>
+
+    <!-- Canvas oculto para OCR -->
+    <canvas id="ocr-canvas"></canvas>
 
     <!-- Resultado -->
     <div id="result-sheet">
@@ -457,60 +508,55 @@
         let dictionary = new Set();
         let tesseractWorker = null;
         let videoStream = null;
-        let isScanning = false;
+        let isProcessing = false;
         let lastWord = '';
         let scanInterval = null;
         
-        // ========== ZOOM ==========
-        let currentZoom = 1.0;
+        // ========== ZOOM PARA OCR ==========
+        // Este zoom afecta el canvas de OCR, no solo la visualización
+        let ocrZoomLevel = 1.0;  // Factor de zoom para el canvas de procesamiento
         const MIN_ZOOM = 1.0;
-        const MAX_ZOOM = 4.0;
-        let initialPinchDistance = 0;
-        let initialZoom = 1.0;
+        const MAX_ZOOM = 5.0;
         
-        function updateZoom() {
-            const video = document.getElementById('video');
-            video.style.transform = `scale(${currentZoom})`;
-            document.getElementById('zoom-level').textContent = currentZoom.toFixed(1) + 'x';
+        function updateZoomDisplay() {
+            document.getElementById('zoom-level-display').textContent = ocrZoomLevel.toFixed(1) + 'x';
         }
         
         function changeZoom(delta) {
-            currentZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, currentZoom + delta));
-            updateZoom();
+            ocrZoomLevel = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, ocrZoomLevel + delta));
+            updateZoomDisplay();
+            // Feedback háptico
+            if (navigator.vibrate) navigator.vibrate(10);
         }
         
-        // Pinch zoom (dos dedos)
-        function getPinchDistance(touches) {
-            const dx = touches[0].clientX - touches[1].clientX;
-            const dy = touches[0].clientY - touches[1].clientY;
-            return Math.sqrt(dx * dx + dy * dy);
-        }
+        // Pinch zoom para OCR
+        let initialPinchDistance = 0;
+        let initialZoom = 1.0;
         
-        const cameraWrapper = document.getElementById('camera-wrapper');
+        const cameraPreview = document.getElementById('camera-preview');
         
-        cameraWrapper.addEventListener('touchstart', (e) => {
+        cameraPreview.addEventListener('touchstart', (e) => {
             if (e.touches.length === 2) {
-                initialPinchDistance = getPinchDistance(e.touches);
-                initialZoom = currentZoom;
-                document.getElementById('zoom-hint').classList.remove('show');
+                initialPinchDistance = Math.hypot(
+                    e.touches[0].clientX - e.touches[1].clientX,
+                    e.touches[0].clientY - e.touches[1].clientY
+                );
+                initialZoom = ocrZoomLevel;
             }
         }, { passive: true });
         
-        cameraWrapper.addEventListener('touchmove', (e) => {
+        cameraPreview.addEventListener('touchmove', (e) => {
             if (e.touches.length === 2) {
                 e.preventDefault();
-                const distance = getPinchDistance(e.touches);
+                const distance = Math.hypot(
+                    e.touches[0].clientX - e.touches[1].clientX,
+                    e.touches[0].clientY - e.touches[1].clientY
+                );
                 const scale = distance / initialPinchDistance;
-                currentZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, initialZoom * scale));
-                updateZoom();
+                ocrZoomLevel = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, initialZoom * scale));
+                updateZoomDisplay();
             }
         }, { passive: false });
-        
-        // Mostrar hint de zoom al inicio
-        setTimeout(() => {
-            document.getElementById('zoom-hint').classList.add('show');
-            setTimeout(() => document.getElementById('zoom-hint').classList.remove('show'), 3000);
-        }, 2000);
 
         // ========== CARGAR DICCIONARIO ==========
         async function loadDictionary() {
@@ -543,7 +589,7 @@
                 
                 setTimeout(() => {
                     document.getElementById('loading-screen').style.display = 'none';
-                    document.getElementById('camera-wrapper').style.display = 'block';
+                    document.getElementById('camera-preview').style.display = 'block';
                     initCamera();
                 }, 600);
                 
@@ -559,7 +605,7 @@
                     
                     setTimeout(() => {
                         document.getElementById('loading-screen').style.display = 'none';
-                        document.getElementById('camera-wrapper').style.display = 'block';
+                        document.getElementById('camera-preview').style.display = 'block';
                         initCamera();
                     }, 600);
                 } catch (err2) {
@@ -572,6 +618,7 @@
         // ========== INICIAR CÁMARA ==========
         async function initCamera() {
             try {
+                // Solicitar resolución máxima posible
                 const constraints = {
                     video: {
                         facingMode: { ideal: 'environment' },
@@ -592,6 +639,7 @@
                     logger: m => {}
                 });
                 
+                // Configurar Tesseract para solo letras
                 await tesseractWorker.setParameters({
                     tessedit_char_whitelist: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ',
                     preserve_interword_spaces: '0',
@@ -606,54 +654,94 @@
             }
         }
 
-        // ========== ESCANEO AUTOMÁTICO ==========
+        // ========== ESCANEO AUTOMÁTICO CON ZOOM ==========
         function startAutoScan() {
             const video = document.getElementById('video');
-            const canvas = document.createElement('canvas');
-            const ctx = canvas.getContext('2d', { willReadFrequently: true });
+            const ocrCanvas = document.getElementById('ocr-canvas');
+            const ocrCtx = ocrCanvas.getContext('2d', { willReadFrequently: true });
+            const zoomPreview = document.getElementById('zoom-preview');
+            const zoomPreviewCanvas = document.getElementById('zoom-preview-canvas');
+            const zoomCtx = zoomPreviewCanvas.getContext('2d');
             
             const checkReady = setInterval(() => {
                 if (video.readyState >= 2) {
                     clearInterval(checkReady);
-                    canvas.width = 400;
-                    canvas.height = 100;
-                    scanInterval = setInterval(() => doScan(ctx, canvas, video), 400);
+                    scanInterval = setInterval(() => doScan(ocrCanvas, ocrCtx, zoomPreviewCanvas, zoomCtx, video), 500);
                 }
             }, 100);
         }
 
-        async function doScan(ctx, canvas, video) {
-            if (isScanning || !tesseractWorker) return;
-            isScanning = true;
+        async function doScan(ocrCanvas, ocrCtx, zoomPreviewCanvas, zoomCtx, video) {
+            if (isProcessing || !tesseractWorker) return;
+            isProcessing = true;
             
             const startTime = performance.now();
+            const distanceHint = document.getElementById('distance-hint');
             
             try {
                 const vW = video.videoWidth;
                 const vH = video.videoHeight;
-                const cropY = Math.floor(vH * 0.42);
-                const cropH = Math.floor(vH * 0.16);
                 
-                ctx.drawImage(video, 
-                    0, cropY, vW, cropH,
-                    0, 0, canvas.width, canvas.height
+                // Área de la zona de escaneo en el video (aprox 85% ancho, 140px alto en pantalla)
+                // Mapeamos la zona visual al video real
+                const scanZoneWidthRatio = 0.85;
+                const scanZoneHeightPx = 140;
+                const scanZoneHeightRatio = scanZoneHeightPx / window.innerHeight;
+                
+                const cropX = Math.floor(vW * (1 - scanZoneWidthRatio) / 2);
+                const cropY = Math.floor(vH * 0.4); // Centrado verticalmente
+                const cropW = Math.floor(vW * scanZoneWidthRatio);
+                const cropH = Math.floor(vH * scanZoneHeightRatio);
+                
+                // Aplicar ZOOM al canvas de OCR
+                // Canvas más grande = más píxeles para Tesseract
+                const zoomedWidth = Math.floor(cropW * ocrZoomLevel);
+                const zoomedHeight = Math.floor(cropH * ocrZoomLevel);
+                
+                // Límite razonable para performance
+                const maxCanvasSize = 1200;
+                const finalW = Math.min(zoomedWidth, maxCanvasSize);
+                const finalH = Math.min(zoomedHeight, maxCanvasSize);
+                
+                ocrCanvas.width = finalW;
+                ocrCanvas.height = finalH;
+                
+                // Dibujar con zoom (stretch del crop)
+                ocrCtx.drawImage(video, 
+                    cropX, cropY, cropW, cropH,
+                    0, 0, finalW, finalH
                 );
                 
-                const result = await tesseractWorker.recognize(canvas);
+                // Mostrar preview del zoom
+                zoomPreviewCanvas.width = finalW;
+                zoomPreviewCanvas.height = finalH;
+                zoomCtx.drawImage(ocrCanvas, 0, 0);
+                document.getElementById('zoom-preview').classList.add('active');
+                
+                // OCR en la imagen ampliada
+                const result = await tesseractWorker.recognize(ocrCanvas);
                 const rawText = result.data.text;
                 const confidence = result.data.confidence;
                 
+                // Extraer palabras
                 const candidates = rawText
                     .replace(/[^a-zA-Z\s]/g, '')
                     .split(/\s+/)
                     .map(w => w.trim().toLowerCase())
-                    .filter(w => w.length >= 3 && w.length <= 18);
+                    .filter(w => w.length >= 3 && w.length <= 20);
                 
                 if (candidates.length > 0) {
                     const bestWord = candidates[0];
+                    
                     if (bestWord !== lastWord) {
                         lastWord = bestWord;
                         await showResult(bestWord, confidence, startTime);
+                        distanceHint.classList.remove('show');
+                    }
+                } else {
+                    // Si no detecta nada y estamos lejos, mostrar hint
+                    if (ocrZoomLevel < 2.0) {
+                        distanceHint.classList.add('show');
                     }
                 }
                 
@@ -663,7 +751,7 @@
             } catch (err) {
                 console.error('Scan error:', err);
             } finally {
-                isScanning = false;
+                isProcessing = false;
             }
         }
 
@@ -676,7 +764,7 @@
             flash.classList.add('on');
             setTimeout(() => flash.classList.remove('on'), 100);
             
-            isScanning = false;
+            isProcessing = false;
             if (!lastWord) showResult('???', 0, performance.now(), true);
             
             setTimeout(() => btn.classList.remove('processing'), 500);
