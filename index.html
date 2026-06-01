@@ -6,11 +6,11 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="WordCheck">
-    <title>⚡ WordCheck iOS</title>
+    <title>⚡ WordCheck iOS + Zoom</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif;
             background: #000;
             color: #fff;
             height: 100vh;
@@ -20,29 +20,37 @@
             flex-direction: column;
             touch-action: none;
         }
-        #camera-view {
+        
+        /* Contenedor de cámara con zoom */
+        #camera-wrapper {
             position: relative;
             flex: 1;
-            background: #000;
             overflow: hidden;
+            background: #000;
         }
         #video {
             width: 100%;
             height: 100%;
             object-fit: cover;
+            /* El zoom se aplica aquí vía JS */
+            transform-origin: center center;
+            transition: transform 0.1s ease-out;
+            will-change: transform;
         }
-        /* Zona de escaneo - solo esta área se procesa */
+        
+        /* Zona de escaneo - siempre visible */
         #scan-zone {
             position: absolute;
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
             width: 88%;
-            height: 110px;
+            height: 120px;
             border: 3px solid #30D158;
             border-radius: 18px;
             box-shadow: 0 0 0 4px rgba(0,0,0,0.5), 0 0 40px rgba(48,209,88,0.3), inset 0 0 30px rgba(48,209,88,0.05);
             pointer-events: none;
+            z-index: 10;
         }
         #scan-zone::before {
             content: 'ENFOCA LA PALABRA';
@@ -71,7 +79,6 @@
             0%, 100% { top: 15%; opacity: 0.3; }
             50% { top: 85%; opacity: 1; }
         }
-        /* Esquinas decorativas */
         .corner {
             position: absolute;
             width: 20px;
@@ -84,7 +91,69 @@
         .corner-bl { bottom: -3px; left: -3px; border-width: 0 0 4px 4px; border-radius: 0 0 0 8px; }
         .corner-br { bottom: -3px; right: -3px; border-width: 0 4px 4px 0; border-radius: 0 0 8px 0; }
         
-        /* UI Overlay */
+        /* Controles de zoom */
+        #zoom-controls {
+            position: absolute;
+            right: 16px;
+            top: 50%;
+            transform: translateY(-50%);
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            z-index: 20;
+        }
+        .zoom-btn {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            background: rgba(0,0,0,0.6);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255,255,255,0.2);
+            color: #fff;
+            font-size: 24px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            -webkit-touch-callout: none;
+            user-select: none;
+        }
+        .zoom-btn:active { transform: scale(0.9); background: rgba(48,209,88,0.3); }
+        #zoom-level {
+            text-align: center;
+            font-size: 13px;
+            font-weight: 700;
+            color: #fff;
+            background: rgba(0,0,0,0.6);
+            backdrop-filter: blur(20px);
+            padding: 6px 0;
+            border-radius: 12px;
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        
+        /* Indicador de zoom pinch */
+        #zoom-hint {
+            position: absolute;
+            top: 20%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.7);
+            backdrop-filter: blur(10px);
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 13px;
+            color: #aaa;
+            opacity: 0;
+            transition: opacity 0.5s;
+            pointer-events: none;
+            z-index: 15;
+        }
+        #zoom-hint.show { opacity: 1; }
+        
+        /* UI superior */
         #ui-layer {
             position: absolute;
             top: 0; left: 0; right: 0;
@@ -111,10 +180,9 @@
         }
         .badge.dict-loading { color: #FF9F0A; }
         .badge.dict-ready { color: #30D158; }
-        .badge.dict-error { color: #FF453A; }
         #timer-badge { color: #64D2FF; font-family: 'SF Mono', monospace; font-size: 13px; }
         
-        /* Botón de captura manual */
+        /* Botón de captura */
         #capture-btn {
             position: absolute;
             bottom: max(24px, env(safe-area-inset-bottom));
@@ -195,7 +263,6 @@
         .result-checking { color: #FF9F0A; }
         .result-checking .result-icon { background: #FF9F0A; color: #000; animation: spin 1s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
-        
         .confidence-track {
             margin-top: 16px;
             height: 5px;
@@ -207,6 +274,22 @@
             height: 100%;
             border-radius: 3px;
             transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .close-btn {
+            position: absolute;
+            top: 12px;
+            right: 16px;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.1);
+            border: none;
+            color: #fff;
+            font-size: 18px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
         
         /* Pantalla de carga */
@@ -276,7 +359,7 @@
         }
         #flash-overlay.on { opacity: 0.25; }
         
-        /* Toast para última palabra */
+        /* History pill */
         #history-pill {
             position: absolute;
             bottom: 110px;
@@ -297,33 +380,15 @@
             opacity: 1;
             transform: translateX(-50%) translateY(0);
         }
-        
-        /* Botón cerrar resultado */
-        .close-btn {
-            position: absolute;
-            top: 12px;
-            right: 16px;
-            width: 32px;
-            height: 32px;
-            border-radius: 50%;
-            background: rgba(255,255,255,0.1);
-            border: none;
-            color: #fff;
-            font-size: 18px;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
     </style>
 </head>
 <body>
 
-    <!-- Pantalla de carga del diccionario -->
+    <!-- Pantalla de carga -->
     <div id="loading-screen">
         <div class="spinner"></div>
         <div class="loading-title">WordCheck</div>
-        <div class="loading-sub">Descargando base de datos de palabras en inglés...</div>
+        <div class="loading-sub">Descargando base de datos de palabras...</div>
         <div class="progress-ios"><div class="progress-ios-fill" id="load-progress"></div></div>
         <div class="word-count" id="word-count">0 palabras</div>
     </div>
@@ -331,10 +396,11 @@
     <!-- Flash -->
     <div id="flash-overlay"></div>
 
-    <!-- Vista de cámara -->
-    <div id="camera-view" style="display:none;">
+    <!-- Cámara con zoom -->
+    <div id="camera-wrapper" style="display:none;">
         <video id="video" autoplay playsinline muted></video>
         
+        <!-- Zona de escaneo -->
         <div id="scan-zone">
             <div class="corner corner-tl"></div>
             <div class="corner corner-tr"></div>
@@ -343,6 +409,17 @@
             <div class="scan-laser"></div>
         </div>
         
+        <!-- Hint de zoom -->
+        <div id="zoom-hint">👆 Pellizca para zoom</div>
+        
+        <!-- Controles de zoom -->
+        <div id="zoom-controls">
+            <button class="zoom-btn" onclick="changeZoom(0.5)" ontouchstart="changeZoom(0.5)">+</button>
+            <div id="zoom-level">1.0x</div>
+            <button class="zoom-btn" onclick="changeZoom(-0.5)" ontouchstart="changeZoom(-0.5)">−</button>
+        </div>
+        
+        <!-- UI superior -->
         <div id="ui-layer">
             <div class="badge dict-loading" id="dict-badge">
                 <span id="dict-icon">⏳</span>
@@ -369,14 +446,12 @@
         </div>
     </div>
 
-    <!-- Tesseract.js desde CDN -->
+    <!-- Tesseract.js -->
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     
     <script>
         // ========== CONFIGURACIÓN ==========
-        // Base de datos: lista SCOWL completa desde GitHub (más confiable y rápido)
         const WORDLIST_URL = 'https://raw.githubusercontent.com/dwyl/english-words/master/words_alpha.txt';
-        // Backup más ligero (10,000 palabras más comunes)
         const WORDLIST_BACKUP = 'https://raw.githubusercontent.com/first20hours/google-10000-english/master/google-10000-english-usa-no-swears.txt';
         
         let dictionary = new Set();
@@ -385,6 +460,57 @@
         let isScanning = false;
         let lastWord = '';
         let scanInterval = null;
+        
+        // ========== ZOOM ==========
+        let currentZoom = 1.0;
+        const MIN_ZOOM = 1.0;
+        const MAX_ZOOM = 4.0;
+        let initialPinchDistance = 0;
+        let initialZoom = 1.0;
+        
+        function updateZoom() {
+            const video = document.getElementById('video');
+            video.style.transform = `scale(${currentZoom})`;
+            document.getElementById('zoom-level').textContent = currentZoom.toFixed(1) + 'x';
+        }
+        
+        function changeZoom(delta) {
+            currentZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, currentZoom + delta));
+            updateZoom();
+        }
+        
+        // Pinch zoom (dos dedos)
+        function getPinchDistance(touches) {
+            const dx = touches[0].clientX - touches[1].clientX;
+            const dy = touches[0].clientY - touches[1].clientY;
+            return Math.sqrt(dx * dx + dy * dy);
+        }
+        
+        const cameraWrapper = document.getElementById('camera-wrapper');
+        
+        cameraWrapper.addEventListener('touchstart', (e) => {
+            if (e.touches.length === 2) {
+                initialPinchDistance = getPinchDistance(e.touches);
+                initialZoom = currentZoom;
+                document.getElementById('zoom-hint').classList.remove('show');
+            }
+        }, { passive: true });
+        
+        cameraWrapper.addEventListener('touchmove', (e) => {
+            if (e.touches.length === 2) {
+                e.preventDefault();
+                const distance = getPinchDistance(e.touches);
+                const scale = distance / initialPinchDistance;
+                currentZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, initialZoom * scale));
+                updateZoom();
+            }
+        }, { passive: false });
+        
+        // Mostrar hint de zoom al inicio
+        setTimeout(() => {
+            document.getElementById('zoom-hint').classList.add('show');
+            setTimeout(() => document.getElementById('zoom-hint').classList.remove('show'), 3000);
+        }, 2000);
 
         // ========== CARGAR DICCIONARIO ==========
         async function loadDictionary() {
@@ -393,29 +519,21 @@
             
             try {
                 progress.style.width = '10%';
-                
-                // Intentar descargar lista principal
-                let response = await fetch(WORDLIST_URL, { 
-                    cache: 'force-cache',
-                    headers: { 'Accept': 'text/plain' }
-                });
-                
+                let response = await fetch(WORDLIST_URL, { cache: 'force-cache' });
                 if (!response.ok) throw new Error('Primary failed');
                 
                 progress.style.width = '40%';
                 const text = await response.text();
                 
                 progress.style.width = '60%';
-                // Procesar: una palabra por línea, minúsculas, filtrar vacías
                 const lines = text.split('\n');
                 const words = [];
                 for (let i = 0; i < lines.length; i++) {
                     const w = lines[i].trim().toLowerCase();
                     if (w.length >= 2) words.push(w);
-                    // Progreso visual cada 50k líneas
                     if (i % 50000 === 0) {
                         progress.style.width = `${60 + (i / lines.length) * 30}%`;
-                        await new Promise(r => setTimeout(r, 0)); // Yield
+                        await new Promise(r => setTimeout(r, 0));
                     }
                 }
                 
@@ -425,13 +543,12 @@
                 
                 setTimeout(() => {
                     document.getElementById('loading-screen').style.display = 'none';
-                    document.getElementById('camera-view').style.display = 'flex';
+                    document.getElementById('camera-wrapper').style.display = 'block';
                     initCamera();
                 }, 600);
                 
             } catch (err) {
                 console.error('Error lista principal:', err);
-                // Fallback a lista de respaldo
                 try {
                     countEl.textContent = 'Usando lista de respaldo...';
                     const response = await fetch(WORDLIST_BACKUP, { cache: 'force-cache' });
@@ -442,7 +559,7 @@
                     
                     setTimeout(() => {
                         document.getElementById('loading-screen').style.display = 'none';
-                        document.getElementById('camera-view').style.display = 'flex';
+                        document.getElementById('camera-wrapper').style.display = 'block';
                         initCamera();
                     }, 600);
                 } catch (err2) {
@@ -455,12 +572,11 @@
         // ========== INICIAR CÁMARA ==========
         async function initCamera() {
             try {
-                // iOS: preferir cámara trasera (environment)
                 const constraints = {
                     video: {
                         facingMode: { ideal: 'environment' },
-                        width: { ideal: 1280 },
-                        height: { ideal: 720 }
+                        width: { ideal: 1920 },
+                        height: { ideal: 1080 }
                     },
                     audio: false
                 };
@@ -471,17 +587,11 @@
                 
                 await video.play();
                 
-                // Inicializar Tesseract worker
                 updateDictStatus('loading', 'Iniciando OCR...');
                 tesseractWorker = await Tesseract.createWorker('eng', 1, {
-                    logger: m => {
-                        if (m.status === 'recognizing text') {
-                            // Silencioso para performance
-                        }
-                    }
+                    logger: m => {}
                 });
                 
-                // Configurar Tesseract para solo letras (más rápido)
                 await tesseractWorker.setParameters({
                     tessedit_char_whitelist: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ',
                     preserve_interword_spaces: '0',
@@ -502,16 +612,11 @@
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d', { willReadFrequently: true });
             
-            // Esperar a que video esté listo
             const checkReady = setInterval(() => {
                 if (video.readyState >= 2) {
                     clearInterval(checkReady);
-                    
-                    // Canvas pequeño: SOLO la zona del scan (performance clave)
                     canvas.width = 400;
                     canvas.height = 100;
-                    
-                    // Escanear cada 400ms (balance velocidad/batería)
                     scanInterval = setInterval(() => doScan(ctx, canvas, video), 400);
                 }
             }, 100);
@@ -524,34 +629,28 @@
             const startTime = performance.now();
             
             try {
-                // Calcular coordenadas del scan-zone en el video
                 const vW = video.videoWidth;
                 const vH = video.videoHeight;
-                const cropY = Math.floor(vH * 0.42); // Centrado verticalmente
-                const cropH = Math.floor(vH * 0.16); // ~16% de altura
+                const cropY = Math.floor(vH * 0.42);
+                const cropH = Math.floor(vH * 0.16);
                 
-                // Dibujar SOLO la zona de escaneo (ultra rápido)
                 ctx.drawImage(video, 
                     0, cropY, vW, cropH,
                     0, 0, canvas.width, canvas.height
                 );
                 
-                // OCR
                 const result = await tesseractWorker.recognize(canvas);
                 const rawText = result.data.text;
                 const confidence = result.data.confidence;
                 
-                // Extraer palabras: limpiar, filtrar, normalizar
                 const candidates = rawText
-                    .replace(/[^a-zA-Z\s]/g, '') // Solo letras
+                    .replace(/[^a-zA-Z\s]/g, '')
                     .split(/\s+/)
                     .map(w => w.trim().toLowerCase())
                     .filter(w => w.length >= 3 && w.length <= 18);
                 
                 if (candidates.length > 0) {
                     const bestWord = candidates[0];
-                    
-                    // Solo procesar si cambió la palabra
                     if (bestWord !== lastWord) {
                         lastWord = bestWord;
                         await showResult(bestWord, confidence, startTime);
@@ -573,18 +672,12 @@
             const btn = document.getElementById('capture-btn');
             btn.classList.add('processing');
             
-            // Flash
             const flash = document.getElementById('flash-overlay');
             flash.classList.add('on');
             setTimeout(() => flash.classList.remove('on'), 100);
             
-            // Forzar un scan inmediato
             isScanning = false;
-            
-            // Si no hay palabra detectada, mostrar mensaje
-            if (!lastWord) {
-                showResult('???', 0, performance.now(), true);
-            }
+            if (!lastWord) showResult('???', 0, performance.now(), true);
             
             setTimeout(() => btn.classList.remove('processing'), 500);
         }
@@ -599,21 +692,16 @@
             const confBar = document.getElementById('conf-bar');
             const history = document.getElementById('history-pill');
             
-            // Mostrar sheet
             sheet.classList.add('active');
             wordEl.textContent = word;
             
-            // Estado: verificando
             statusRow.className = 'result-row result-checking';
             statusIcon.textContent = '⟳';
             statusText.textContent = 'Verificando...';
             confBar.style.width = `${Math.min(confidence, 100)}%`;
             confBar.style.background = '#FF9F0A';
             
-            // Validación ultra-rápida con Set (O(1))
             const isValid = dictionary.has(word);
-            
-            // Pequeña pausa para UX (aunque ya tenemos resultado)
             await new Promise(r => setTimeout(r, 150));
             
             if (isValid) {
@@ -630,12 +718,10 @@
                 if (navigator.vibrate) navigator.vibrate(80);
             }
             
-            // Actualizar historial
             history.textContent = `Última: ${word} ${isValid ? '✓' : '✕'}`;
             history.classList.add('visible');
             setTimeout(() => history.classList.remove('visible'), 2500);
             
-            // Auto-cerrar después de 4 segundos
             setTimeout(() => {
                 if (lastWord === word) closeResult();
             }, 4000);
@@ -646,24 +732,19 @@
             lastWord = '';
         }
 
-        // ========== UTILIDADES ==========
         function updateDictStatus(state, text) {
             const badge = document.getElementById('dict-badge');
             const icon = document.getElementById('dict-icon');
             const label = document.getElementById('dict-label');
-            
             badge.className = `badge dict-${state}`;
             label.textContent = text;
-            
             if (state === 'ready') icon.textContent = '✓';
             else if (state === 'error') icon.textContent = '!';
             else icon.textContent = '⏳';
         }
 
-        // ========== INICIAR ==========
         window.addEventListener('DOMContentLoaded', loadDictionary);
         
-        // Limpieza al salir
         window.addEventListener('beforeunload', () => {
             if (scanInterval) clearInterval(scanInterval);
             if (tesseractWorker) tesseractWorker.terminate();
